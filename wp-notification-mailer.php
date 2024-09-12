@@ -5,7 +5,7 @@ Description: Adds a notification button next to posts/pages in the admin edit pa
 Version: 1.0.1
 Author: Glenn Hofman
 Homepage: https://www.glennhofman.nl
-download_link: https://github.com/g-hofman/wp-notification-mailer/blob/main/wp-notification-mailer.zip
+download_link: https://github.com/g-hofman/wp-notification-mailer/archive/refs/heads/main.zip
 Text Domain: wp-notification-mailer
 */
 
