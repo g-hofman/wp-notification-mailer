@@ -13,11 +13,22 @@ if (!defined('ABSPATH')) exit; // Exit if accessed directly
 
 class CategoryUpdateEmailNotifications {
     
+    public function __construct() {
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
+        add_action('admin_menu', [$this, 'create_options_page']);
+        add_filter('post_row_actions', [$this, 'add_send_notification_link'], 10, 2); // Hook to add "Send Notification" link
+        add_action('admin_init', [$this, 'process_send_notification']);
+        // Display admin notice when the notification is sent
+        add_action('admin_notices', function() {
+            if (isset($_GET['notification_sent'])) {
+                echo '<div class="notice notice-success is-dismissible"><p>Notification email sent successfully!</p></div>';
+            }
+        });
+    }
+
     public function enqueue_admin_scripts() {
         wp_enqueue_script('notification-comment-script', plugin_dir_url(__FILE__) . 'notification-comment.js', ['jquery'], null, true);
     }
-    
-    add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
 
     // Add the "Send Notification" link next to the "Edit" link
     public function add_send_notification_link($actions, $post) {
@@ -28,11 +39,12 @@ class CategoryUpdateEmailNotifications {
                 'post_id' => $post->ID,
                 '_wpnonce' => wp_create_nonce('send_notification_' . $post->ID)
             ], admin_url('edit.php'));
-    
+
             $actions['send_notification'] = '<a href="' . esc_url($url) . '">Send Notification</a>';
         }
         return $actions;
     }
+
     // Process the "Send Notification" action
     public function process_send_notification() {
         if (isset($_GET['action']) && $_GET['action'] === 'send_notification' && isset($_GET['post_id'])) {
@@ -66,19 +78,6 @@ class CategoryUpdateEmailNotifications {
         }
     }
 
-
-    public function __construct() {
-        add_action('admin_menu', [$this, 'create_options_page']);
-        add_filter('post_row_actions', [$this, 'add_send_notification_link'], 10, 2); // Hook to add "Send Notification" link
-        add_action('admin_init', [$this, 'process_send_notification']);
-        // Display admin notice when the notification is sent
-        add_action('admin_notices', function() {
-            if (isset($_GET['notification_sent'])) {
-                echo '<div class="notice notice-success is-dismissible"><p>Notification email sent successfully!</p></div>';
-            }
-        });
-    }
-
     // Create options page
     public function create_options_page() {
         add_options_page('Category Email Notifications', 'Category Email Notifications', 'manage_options', 'category-email-notifications', [$this, 'options_page_html']);
@@ -90,19 +89,16 @@ class CategoryUpdateEmailNotifications {
             // Sanitize and save the email template
             $email_template = wp_kses_post($_POST['email_template']);
             update_option('email_template', $email_template);
-        
+
             // Save other settings
             update_option('selected_categories', $_POST['categories']);
             update_option('test_email_enabled', isset($_POST['test_email_enabled']) ? 1 : 0);
             update_option('test_email_address', sanitize_email($_POST['test_email_address']));
             update_option('email_notifications_enabled', isset($_POST['email_notifications_enabled']) ? 1 : 0);
         }
-        
-        
-        // Get saved options
+
         // Get saved options
         $email_template = get_option('email_template', '');
-        // Unescape for proper display in the textarea
         $email_template = wp_unslash($email_template);
         $selected_categories = get_option('selected_categories', []);
         $test_email_enabled = get_option('test_email_enabled', 0);
@@ -111,19 +107,18 @@ class CategoryUpdateEmailNotifications {
         $categories = get_categories(); // Fetch all post categories
 
         // Admin page HTML
-        
         echo '<div class="wrap">';
         echo '<h1>Category Email Notifications</h1>';
         echo '<form method="post">';
         // Enable/Disable Email Notifications Checkbox
-    $checked = $email_notifications_enabled ? 'checked' : '';
-    echo '<h2>Email Notifications</h2>';
-    echo '<input type="checkbox" name="email_notifications_enabled" '.$checked.'> Enable Email Notifications<br>';
+        $checked = $email_notifications_enabled ? 'checked' : '';
+        echo '<h2>Email Notifications</h2>';
+        echo '<input type="checkbox" name="email_notifications_enabled" '.$checked.'> Enable Email Notifications<br>';
 
         echo '<label for="email_template">Email Template:</label><br>';
         echo '<textarea name="email_template" rows="10" cols="50">'.esc_textarea($email_template).'</textarea><br>';
         echo '<p>Use the following template tags: {{username}}, {{post_url}}, {{post_title}}</p>';
-        
+
         echo '<h2>Select Categories for Notifications</h2>';
         foreach ($categories as $category) {
             $checked = in_array($category->term_id, $selected_categories) ? 'checked' : '';
@@ -139,45 +134,45 @@ class CategoryUpdateEmailNotifications {
         echo '<input type="submit" name="save_settings" value="Save Settings">';
         echo '</form>';
         echo '</div>';
-        $backlog = get_option('notification_backlog', []);
 
-    // Display backlog
-    echo '<h2>Notification Backlog</h2>';
-    echo '<span style="display: block; height: 150px; overflow-y: scroll; border: 1px solid #ccc;">';
-    if ($backlog) {
-        foreach ($backlog as $entry) {
-            echo '<p><strong>' . esc_html($entry['timestamp']) . '</strong>: ' . esc_html($entry['title']) . ' - ' . esc_html($entry['comment']) . '</p>';
+        $backlog = get_option('notification_backlog', []);
+        // Display backlog
+        echo '<h2>Notification Backlog</h2>';
+        echo '<span style="display: block; height: 150px; overflow-y: scroll; border: 1px solid #ccc;">';
+        if ($backlog) {
+            foreach ($backlog as $entry) {
+                echo '<p><strong>' . esc_html($entry['timestamp']) . '</strong>: ' . esc_html($entry['title']) . ' - ' . esc_html($entry['comment']) . '</p>';
+            }
+        } else {
+            echo '<p>No notifications sent yet.</p>';
         }
-    } else {
-        echo '<p>No notifications sent yet.</p>';
-    }
-    echo '</span>';
+        echo '</span>';
     }
 
     public function send_email_notification($post_id, $post, $update, $comment = '') {
         if ($post->post_status !== 'publish') return;
-    
+
         // Check if email notifications are enabled
         $email_notifications_enabled = get_option('email_notifications_enabled', 0);
         if (!$email_notifications_enabled) return;
-    
+
         $selected_categories = get_option('selected_categories', []);
         $categories = wp_get_post_categories($post_id);
-    
+
         // Check if post belongs to any selected categories
         if (!array_intersect($selected_categories, $categories)) return;
-    
+
         // Get email template and replace template tags
         $email_template = get_option('email_template', '');
         $email_template = str_replace('{{post_url}}', get_permalink($post_id), $email_template);
         $email_template = str_replace('{{post_title}}', get_the_title($post_id), $email_template);
         $email_template = str_replace('{{comments}}', esc_html($comment), $email_template);
-    
+
         // Set content type to HTML
         add_filter('wp_mail_content_type', function() {
             return 'text/html';
         });
-    
+
         // Check if test email is enabled
         if (get_option('test_email_enabled')) {
             $test_email_address = get_option('test_email_address', '');
@@ -193,12 +188,13 @@ class CategoryUpdateEmailNotifications {
                 wp_mail($user_email, 'Post Updated: ' . get_the_title($post_id), $email_content);
             }
         }
-    
+
         // Reset content type to plain text
         remove_filter('wp_mail_content_type', function() {
             return 'text/html';
         });
     }
+
     public function add_comment_to_backlog($post_id, $comment) {
         $backlog = get_option('notification_backlog', []);
         $backlog[] = [
@@ -208,12 +204,11 @@ class CategoryUpdateEmailNotifications {
         ];
         update_option('notification_backlog', $backlog);
     }
-    
-    
 }
 
 new CategoryUpdateEmailNotifications();
 
+// Plugin updater
 class PluginUpdater {
     private $current_version;
     private $remote_url;
