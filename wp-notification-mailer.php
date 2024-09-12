@@ -30,23 +30,24 @@ class CategoryUpdateEmailNotifications {
         wp_enqueue_script('notification-comment-script', plugin_dir_url(__FILE__) . 'notification-comment.js', ['jquery'], null, true);
     }
 
-// Add the "Send Notification" link next to the "Edit" link
-public function add_send_notification_link($actions, $post) {
-    // Get all public post types, including custom post types
-    $public_post_types = get_post_types(['public' => true]);
-
-    // Add the link for published posts, pages, and custom post types
-    if ($post->post_status == 'publish' && in_array($post->post_type, $public_post_types)) {
-        $url = add_query_arg([
-            'action' => 'send_notification',
-            'post_id' => $post->ID,
-            '_wpnonce' => wp_create_nonce('send_notification_' . $post->ID)
-        ], admin_url('edit.php'));
-
-        $actions['send_notification'] = '<a href="' . esc_url($url) . '">Send Notification</a>';
+    public function add_send_notification_link($actions, $post) {
+        // Get all registered post types (including non-public ones)
+        $all_post_types = get_post_types([], 'names');
+    
+        // Add the link for published posts, pages, and all custom post types
+        if ($post->post_status == 'publish' && in_array($post->post_type, $all_post_types)) {
+            $url = add_query_arg([
+                'action' => 'send_notification',
+                'post_id' => $post->ID,
+                '_wpnonce' => wp_create_nonce('send_notification_' . $post->ID)
+            ], admin_url('edit.php'));
+    
+            $actions['send_notification'] = '<a href="' . esc_url($url) . '">Send Notification</a>';
+        }
+        return $actions;
     }
-    return $actions;
-}
+    
+
 
 
 // Process the "Send Notification" action
