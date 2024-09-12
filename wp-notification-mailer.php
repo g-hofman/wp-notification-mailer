@@ -2,7 +2,7 @@
 /*
 Plugin Name: WP notification mailer
 Description: Adds a notification button next to posts/pages in the admin edit pages to send e-mails to all users to notify them about changes or additions.
-Version: 1.0.0
+Version: 1.0.1
 Author: Glenn Hofman
 Homepage: https://www.glennhofman.nl
 download_link: https://github.com/g-hofman/wp-notification-mailer/blob/main/wp-notification-mailer.zip
@@ -30,53 +30,58 @@ class CategoryUpdateEmailNotifications {
         wp_enqueue_script('notification-comment-script', plugin_dir_url(__FILE__) . 'notification-comment.js', ['jquery'], null, true);
     }
 
-    // Add the "Send Notification" link next to the "Edit" link
-    public function add_send_notification_link($actions, $post) {
-        // Add the link for published posts and pages
-        if ($post->post_status == 'publish' && in_array($post->post_type, ['post', 'page'])) {
-            $url = add_query_arg([
-                'action' => 'send_notification',
-                'post_id' => $post->ID,
-                '_wpnonce' => wp_create_nonce('send_notification_' . $post->ID)
-            ], admin_url('edit.php'));
+// Add the "Send Notification" link next to the "Edit" link
+public function add_send_notification_link($actions, $post) {
+    // Get all public post types, including custom post types
+    $public_post_types = get_post_types(['public' => true]);
 
-            $actions['send_notification'] = '<a href="' . esc_url($url) . '">Send Notification</a>';
-        }
-        return $actions;
+    // Add the link for published posts, pages, and custom post types
+    if ($post->post_status == 'publish' && in_array($post->post_type, $public_post_types)) {
+        $url = add_query_arg([
+            'action' => 'send_notification',
+            'post_id' => $post->ID,
+            '_wpnonce' => wp_create_nonce('send_notification_' . $post->ID)
+        ], admin_url('edit.php'));
+
+        $actions['send_notification'] = '<a href="' . esc_url($url) . '">Send Notification</a>';
     }
+    return $actions;
+}
 
-    // Process the "Send Notification" action
-    public function process_send_notification() {
-        if (isset($_GET['action']) && $_GET['action'] === 'send_notification' && isset($_GET['post_id'])) {
-            $post_id = intval($_GET['post_id']);
-            $nonce = $_GET['_wpnonce'];
 
-            // Verify nonce for security
-            if (!wp_verify_nonce($nonce, 'send_notification_' . $post_id)) {
-                wp_die('Security check failed');
-            }
+// Process the "Send Notification" action
+public function process_send_notification() {
+    if (isset($_GET['action']) && $_GET['action'] === 'send_notification' && isset($_GET['post_id'])) {
+        $post_id = intval($_GET['post_id']);
+        $nonce = $_GET['_wpnonce'];
 
-            // Get the comment
-            $comment = isset($_GET['comment']) ? sanitize_text_field(urldecode($_GET['comment'])) : '';
+        // Verify nonce for security
+        if (!wp_verify_nonce($nonce, 'send_notification_' . $post_id)) {
+            wp_die('Security check failed');
+        }
 
-            if (empty($comment)) {
-                wp_die('Comment cannot be empty.');
-            }
+        // Get the comment
+        $comment = isset($_GET['comment']) ? sanitize_text_field(urldecode($_GET['comment'])) : '';
 
-            // Get the post
-            $post = get_post($post_id);
-            if ($post && $post->post_status === 'publish') {
-                // Send the email with the comment
-                $this->send_email_notification($post_id, $post, true, $comment);
+        if (empty($comment)) {
+            wp_die('Comment cannot be empty.');
+        }
 
-                // Add the comment to the backlog
-                $this->add_comment_to_backlog($post_id, $comment);
+        // Get the post, including custom post types
+        $post = get_post($post_id);
+        if ($post && $post->post_status === 'publish') {
+            // Send the email with the comment
+            $this->send_email_notification($post_id, $post, true, $comment);
 
-                wp_redirect(admin_url('edit.php?post_type=' . $post->post_type . '&notification_sent=1'));
-                exit;
-            }
+            // Add the comment to the backlog
+            $this->add_comment_to_backlog($post_id, $comment);
+
+            wp_redirect(admin_url('edit.php?post_type=' . $post->post_type . '&notification_sent=1'));
+            exit;
         }
     }
+}
+
 
     // Create options page
     public function create_options_page() {
@@ -151,28 +156,29 @@ class CategoryUpdateEmailNotifications {
 
     public function send_email_notification($post_id, $post, $update, $comment = '') {
         if ($post->post_status !== 'publish') return;
-
+    
         // Check if email notifications are enabled
         $email_notifications_enabled = get_option('email_notifications_enabled', 0);
         if (!$email_notifications_enabled) return;
-
+    
+        // For custom post types, we might not have categories, so skip category check if not applicable
         $selected_categories = get_option('selected_categories', []);
         $categories = wp_get_post_categories($post_id);
-
-        // Check if post belongs to any selected categories
-        if (!array_intersect($selected_categories, $categories)) return;
-
+    
+        // Check if post belongs to any selected categories, but skip for post types without categories
+        if (!empty($categories) && !array_intersect($selected_categories, $categories)) return;
+    
         // Get email template and replace template tags
         $email_template = get_option('email_template', '');
         $email_template = str_replace('{{post_url}}', get_permalink($post_id), $email_template);
         $email_template = str_replace('{{post_title}}', get_the_title($post_id), $email_template);
         $email_template = str_replace('{{comments}}', esc_html($comment), $email_template);
-
+    
         // Set content type to HTML
         add_filter('wp_mail_content_type', function() {
             return 'text/html';
         });
-
+    
         // Check if test email is enabled
         if (get_option('test_email_enabled')) {
             $test_email_address = get_option('test_email_address', '');
@@ -188,12 +194,13 @@ class CategoryUpdateEmailNotifications {
                 wp_mail($user_email, 'Post Updated: ' . get_the_title($post_id), $email_content);
             }
         }
-
+    
         // Reset content type to plain text
         remove_filter('wp_mail_content_type', function() {
             return 'text/html';
         });
     }
+    
 
     public function add_comment_to_backlog($post_id, $comment) {
         $backlog = get_option('notification_backlog', []);
@@ -285,4 +292,4 @@ class PluginUpdater {
 }
 
 // Initialize the updater
-$plugin_updater = new PluginUpdater('1.0.0', 'https://github.com/g-hofman/wp-notification-mailer/blob/main/plugin-info.json', 'wp-notification-mailer');
+$plugin_updater = new PluginUpdater('1.0.1', 'https://github.com/g-hofman/wp-notification-mailer/blob/main/plugin-info.json', 'wp-notification-mailer');
