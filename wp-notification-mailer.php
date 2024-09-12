@@ -290,4 +290,4 @@ class PluginUpdater {
 }
 
 // Initialize the updater
-$plugin_updater = new PluginUpdater('1.0.0', 'https://your-server.com/plugin-info.json', 'wp-notification-mailer');
+$plugin_updater = new PluginUpdater('1.0.0', 'https://github.com/g-hofman/wp-notification-mailer/blob/main/plugin-info.json', 'wp-notification-mailer');
